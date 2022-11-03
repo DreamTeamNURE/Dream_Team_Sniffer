@@ -1,1 +1,1 @@
-# It's simple network packet sniffer!
+# Dream Team Sniffer
