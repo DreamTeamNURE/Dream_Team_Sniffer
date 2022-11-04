@@ -132,7 +132,7 @@ int main()
 			printf(" TTL:%s", _itoa(hdr->iph_ttl, ds, 10));
 
 			cout << " " << hdr->iph_offset << " " << hdr->iph_id;
-			cout << " " << hdr->params;
+			cout << " " << hdr->params << " " << hdr->data;
 
 			cout << endl;
 		}
