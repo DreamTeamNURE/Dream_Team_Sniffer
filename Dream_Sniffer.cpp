@@ -73,13 +73,10 @@ int main()
 
 	sa.sin_family = AF_INET;
 	sa.sin_port = htons(6000);
-	memcpy(&sa.sin_addr.S_un.S_addr, h->h_addr_list[2], h->h_length);
+	memcpy(&sa.sin_addr.S_un.S_addr, h->h_addr_list[2], h->h_length); // Выберите свой интерфейс (заменить 2)
 
 	if ((bind(s, (SOCKADDR*)&sa, sizeof(SOCKADDR))) == SOCKET_ERROR)
 		printf("unable to bind() socket\n");
-	
-	
-	
 
 	// Включение promiscuous mode.
 	ioctlsocket(s, SIO_RCVALL, &flag);
