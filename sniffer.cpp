@@ -250,23 +250,7 @@ int main(int argc, char* argv[])
 
 	
 
-#ifndef ALPHA
-	SetConsoleTextColor(0x07);
-	printf(STR_CONSOLE_OUTPUT); 
-	SetConsoleTextColor(0x0A); scanf("%c", &console_out);
 
-	SetConsoleTextColor(0x07);
-	printf(STR_RESOLUTION);
-	SetConsoleTextColor(0x0A);
-	scanf("%d", &packet_res);
-
-	SetConsoleTextColor(0x07);
-	printf(STR_WATCH_HOST);
-	SetConsoleTextColor(0x0A);
-	scanf("%s", buf);
-	watch_host = inet_addr(buf);
-	SetConsoleTextColor(0x07);
-#endif
 
 #ifdef NET_SERVER_2000
 	// запуск сервера - посылка трафика  любому клиенту
