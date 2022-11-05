@@ -1,233 +1,219 @@
 #pragma comment(lib, "ws2_32.lib")
-
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
-#define _CRT_SECURE_NO_WARNINGS
 
-
-#include <conio.h>
-#include <stdlib.h>
 #include <iostream>
-#include <stdio.h>
 #include <winsock2.h>
+
 
 #define MAX_PACKET_SIZE    0x10000
 #define SIO_RCVALL         0x98000001
 
-// Буфер для приёма данных
-unsigned char Buffer[MAX_PACKET_SIZE]; // 64 Kb
-
 using namespace std;
 
-//Структура заголовка IP-пакета
-
-typedef struct IPHeader {
-	UCHAR   verlen;   // версия(4) и длина заголовка(4)
-	UCHAR   tos;      // тип сервиса(DSCP(6), ECN(2)) 
-	USHORT  length;   // длина всего пакета(16)
-	USHORT  id;       // Идентификация(16)
-	USHORT  offset;   // флаги(3) и смещения(13)
-	UCHAR   ttl;      // время жизни пакета(8)
-	UCHAR   protocol; // протокол(8)
-	USHORT  xsum;     // контрольная сумма(16)
-	ULONG   src;      // IP-адрес отправителя(32)
-	ULONG   dest;     // IP-адрес назначения(32)
-
-	//------------------------------------------------------------
-	unsigned short* params;	    // параметры (до 320 бит)
-	unsigned char* data;	    // данные (до 65535 - длина заголовка)
-} IPHeader;
-
-typedef struct IPPacket {
-	unsigned char version;
-	unsigned char IHL;
-	unsigned char DSCP;
-	unsigned char ECN;
-	unsigned short Total_Length;
-	unsigned short Data_Length;
-	unsigned short Id;
-	unsigned char Flags;
-	unsigned char Fragment_offset;
-	unsigned char TTL;
-	unsigned char Protocol;
-	unsigned short Hchecksum;
-	unsigned int Src_IP;
-	unsigned int Dest_IP;
-	unsigned short* Options;
-	unsigned char* Data;
-	
-
-} IPPakcet;
-
-typedef struct TCPPacket {
-	unsigned short Src_port;
-	unsigned short Dest_port;
-	unsigned int Sequence_number;
-	unsigned int Acknowledgment_number;
-	unsigned char* Options;
-
-} TCPPacket;
-
-typedef IPHeader FAR* LPIPHeader;
-typedef IPPacket FAR* LPIPPacket;
-typedef TCPPacket FAR* LPTCPPacket;
-
-typedef struct Packet {
-	char protocol;
-	char src_ip;
-	char src_port;
-	char dest_ip;
-	char dest_port;
+struct IPv4Header {
+	unsigned char IHL : 4;				// Internet Header Length (4 bits)
+	unsigned char version : 4;			// IP protocol (4 bits)
+	unsigned char ECN : 2;				// Explicit Congestion Notification (2 bits)
+	unsigned char DSCP : 6;				// Differentiated Services Code Point (6 bits)
+	unsigned short total_length;		// Total Length (16 bits)
+	unsigned short id;					// Identification (16 bits)
+	unsigned char fragment_offset1 : 5; // Fragment offset (5 bits)
+	unsigned char more_fragment : 1;	// Flags (More Fragments) (1 bit)
+	unsigned char dont_fragment : 1;	// Flags (Don't Fragment) (1 bit)
+	unsigned char reserved_zero : 1;	// Flags (Reserved) (1 bit)
+	unsigned char fragment_offset2;		// Fragment offset (8 bits)
+	unsigned char TTL;					// Time to live (8 bits)
+	unsigned char protocol;				// Protocol (8 bits)
+	unsigned short Hchecksum;			// Header checksum (16 bits)
+	unsigned int src_IP;				// Source address (32 bits)
+	unsigned int dest_IP;				// Destination address (32 bits)
+	//unsigned short* Options;			// Options
 };
 
+struct TCPHeader {
+	unsigned short src_port;			// Source port (16 bits)
+	unsigned short dest_port;			// Destination port (16 bits)
+	unsigned int sequence;				// Sequence number (32 bits)
+	unsigned int acknowledge;			// Acknowledgement number (32 bits)
 
-SOCKET Create_Socket(int host_interface) {
-	WSADATA     wsadata;   // Инициализация WinSock.
-	SOCKET      s;         // Cлущающий сокет.
-	char        name[128]; // Имя хоста (компьютера).
-	HOSTENT*	h;       // Информация о хосте.
-	SOCKADDR_IN sa;        // Адрес хоста
-	unsigned long	flag = 1;  // Флаг PROMISC Вкл/выкл.
+	unsigned char ns : 1;				// Nonce Sum Flag Added in RFC 3540. (1 bit)
+	unsigned char reserved_part : 3;	// according to rfc (3 bits)
+	unsigned char data_offset : 4;		// The number of 32-bit words in the TCP header (4 bits)
+	unsigned char fin : 1;				// Finish Flag (1 bit)
+	unsigned char syn : 1;				// Synchronise Flag (1 bit)
+	unsigned char rst : 1;				// Reset Flag (1 bit)
+	unsigned char psh : 1;				// Push Flag (1 bit)
+	unsigned char ack : 1;				// Acknowledgement Flag (1 bit)
+	unsigned char urg : 1;				// Urgent Flag (1 bit)
 
-	// инициализация
+	unsigned char ecn : 1;				// ECN-Echo Flag (1 bit)
+	unsigned char cwr : 1;				// Congestion Window Reduced Flag (1 bit)
+	unsigned short window;				// Window (16 bits)
+	unsigned short checksum;			// Checksum (16 bits)
+	unsigned short urgent_pointer;		// Urgent pointer (16 bits)
+	//unsigned short* Options;			// Options
+};
 
-	if (WSAStartup(MAKEWORD(2, 2), &wsadata) != 0)
-		printf("WSAStartup failed\n");
+struct UDPHeader{
+	unsigned short src_port;			// Source port (16 bits)
+	unsigned short dest_port;			// Destination port (16 bits)
+	unsigned short length;				// Udp packet length (16 bits)
+	unsigned short checksum;			// Udp checksum (optional) (16 bits)
+};
 
-	if ((s = socket(AF_INET, SOCK_RAW, IPPROTO_IP)) == INVALID_SOCKET)
-		printf("unable to open raw socket\nRUN THIS PROGRAM WITH ADMINISTRATIVE PRIVILEGES!!!\n");
+struct Packet {
+	char* src_IP;
+	int src_port;
+	char* dest_IP;
+	int dest_port;
+	string protocol;
+	int total_length;
+	int TTL;
+};
 
-	// use default interface
-	if ((gethostname(name, 1024)) == SOCKET_ERROR)
+char* getStrIP(unsigned int ip) {
+	IN_ADDR	s;
+	s.s_addr = ip;
+	return inet_ntoa(s);
+
+}
+
+void print_Packet(Packet* pack) {
+	if (!pack->src_IP) {
+		cout << "Proto: " << pack->protocol << endl;
+		return;
+	}
+	cout << "Src_IP: " << pack->src_IP << " ";
+	cout << ": " << pack->src_port << " ";
+	cout << "Dest_IP: " << pack->dest_IP << " ";
+	cout << ": " << pack->dest_port << " ";
+	cout << "Proto: " << pack->protocol << " ";
+	cout << "Total length: " << pack->total_length << " ";
+	cout << "TTL: " << pack->TTL << endl;
+}
+
+SOCKET CreateSocket(int host_interface) {
+	WSADATA     wsadata;	// init WinSock.
+	SOCKET      s;			// listening socket.
+	char        h_name[128];	// Host name (Computer name).
+	HOSTENT* h_info;				// Host information.
+	SOCKADDR_IN sa;			// Host IP address.
+	unsigned long	flag = 1;	// Flag PROMISC ON/OFF.
+
+	if (WSAStartup(MAKEWORD(2, 2), &wsadata) != 0) {
+		printf("WSAStartup failed with error % d\n", WSAGetLastError());
+	}
+	
+	if ((gethostname(h_name, 1024)) == SOCKET_ERROR)
 		printf("unable to gethostname\n");
 
-	if ((h = gethostbyname(name)) == NULL)
+	if ((h_info = gethostbyname(h_name)) == NULL)
 		printf("unable to gethostbyname\n");
-
+	
+	if ((s = socket(AF_INET, SOCK_RAW, IPPROTO_IP)) == INVALID_SOCKET)
+		printf("unable to open raw socket\nRUN THIS PROGRAM WITH ADMINISTRATIVE PRIVILEGES!!!\n");
+	
 	sa.sin_family = AF_INET;
-	memcpy(&sa.sin_addr.S_un.S_addr, h->h_addr_list[host_interface], h->h_length); // Выберите свой интерфейс
+	//sa.sin_addr.S_un.S_addr = INADDR_ANY;
+	memcpy(&sa.sin_addr.S_un.S_addr, h_info->h_addr_list[host_interface], h_info->h_length); // Choose your interface
 
 	if ((bind(s, (SOCKADDR*)&sa, sizeof(SOCKADDR))) == SOCKET_ERROR)
 		printf("unable to bind() socket\n");
 
-	// Включение promiscuous mode.
-	ioctlsocket(s, SIO_RCVALL, &flag);
-
+	// Turn ON promiscuous mode.
+	ioctlsocket(s, SIO_RCVALL, &flag);	
+	printf("Socket has created successfuly\n");
 	return s;
 }
 
-void Stop_Socket(SOCKET s) {
+void DelSocket(SOCKET s) {
 	closesocket(s);
 	WSACleanup();
 }
 
-IPPacket* Get_IP_packet(SOCKET s){
-	IPHeader* hdr;
-	IPPacket* ipp;
-	int count = 0;
-	count = recv(s, (char*)&Buffer, sizeof(Buffer), 0);
-	if (count >= sizeof(IPHeader))
+unsigned char* Get_Buffer(SOCKET s) {
+	unsigned char Buffer[MAX_PACKET_SIZE]; // Buffer for income data (64 Kb)
+	int count = recv(s, (char*)&Buffer, sizeof(Buffer), 0);
+	if (count <= 0)
+		Buffer[0] = NULL;
+		
+	return Buffer;
+
+}
+
+Packet* Get_TCP_header(unsigned char* Buffer) {
+	IPv4Header* iphdr = (IPv4Header*)(Buffer);
+	TCPHeader* tcphdr = (TCPHeader*)(Buffer + iphdr->IHL * 4);
+
+	Packet* pack = new Packet;
+	pack->src_IP = getStrIP(iphdr->src_IP);
+	pack->src_port = (tcphdr->src_port);
+	pack->dest_IP = getStrIP(iphdr->dest_IP);
+	pack->dest_port = ntohs(tcphdr->dest_port);
+	pack->protocol = "TCP";
+	pack->total_length = int(iphdr->total_length);
+	pack->TTL = int(iphdr->TTL);
+	return pack;
+}
+
+Packet* Get_UDP_header(unsigned char* Buffer) {
+	IPv4Header* iphdr = (IPv4Header*)(Buffer);
+	UDPHeader* udphdr = (UDPHeader*)(Buffer + iphdr->IHL * 4);
+
+	Packet* pack = new Packet;
+	pack->src_IP = getStrIP(iphdr->src_IP);
+	pack->src_port = ntohs(udphdr->src_port);
+	pack->dest_IP = getStrIP(iphdr->dest_IP);
+	pack->dest_port = ntohs(udphdr->dest_port);
+	pack->protocol = "UDP";
+	pack->total_length = int(iphdr->total_length);
+	pack->TTL = int(iphdr->TTL);
+	return pack;
+}
+
+Packet* Get_IPv4_header(unsigned char* Buffer) {
+	IPv4Header* iphdr = (IPv4Header*)(Buffer);
+	/*Packet* pack = new Packet;
+	pack->src_IP = getstrIP(iphdr->src_IP);
+	pack->dest_IP = getstrIP(iphdr->dest_IP);
+	pack->protocol = int(iphdr->protocol);
+	pack->total_length = int(iphdr->total_length);
+	pack->TTL = int(iphdr->TTL);
+	print_Packet(pack);*/
+	Packet* pack;
+
+	switch (iphdr->protocol)
 	{
-		hdr = (LPIPHeader)malloc(MAX_PACKET_SIZE);
-		ipp = (LPIPPacket)malloc(MAX_PACKET_SIZE);
-		memcpy(hdr, &Buffer, MAX_PACKET_SIZE);
+	case 6: //TCP Protocol
+		pack = Get_TCP_header(Buffer);
+		break;
 
-		char c;
-
-		
-		c = hdr->verlen << 4;
-		ipp->IHL = int(c >> 4);
-		ipp->version = int(hdr->verlen >> 4);
-
-		c = hdr->tos << 6;
-		ipp->ECN = c >> 6;
-		ipp->DSCP = hdr->tos >> 2;
-	
-		ipp->Total_Length = hdr->length >> 8 + hdr->length << 8;
-		int len = ipp->IHL - 5;
-
-		ipp->Data_Length = ipp->Total_Length - 20 - len * 4;
-		ipp->Id = hdr->id;
-
-		ipp->Flags = hdr->offset >> 13;
-		c = hdr->offset << 3;
-		ipp->Fragment_offset = c >> 3;
-
-		ipp->TTL = hdr->ttl;
-		ipp->Protocol = int(hdr->protocol);
-		ipp->Hchecksum = hdr->xsum;
-
-		ipp->Src_IP = hdr->src;
-
-		ipp->Dest_IP = hdr->dest;
-
-		//memmove(ipp->Options, hdr->params, len * 4);
-		memmove(ipp->Data, hdr->params + len * 4, ipp->Data_Length);
-		
-		
-		return ipp;
+	case 17: //UDP Protocol
+		pack = Get_UDP_header(Buffer);
+		break;
+	default:
+		pack = new Packet();
+		pack->protocol = iphdr->protocol;
+		pack->src_IP = NULL;
+		break;
 	}
-	else
-		return 0;
-
+	return pack;
 }
 
-TCPPacket* Get_TCP_packet(IPPacket* ipp) {
-	TCPPacket* tcpp;
-	tcpp = (LPTCPPacket)malloc(MAX_PACKET_SIZE);
-	memcpy(tcpp, &ipp->Data, MAX_PACKET_SIZE);
-	unsigned char lowbyte, hibyte;
-	lowbyte = tcpp->Dest_port >> 8;
-	hibyte = tcpp->Dest_port << 8;
-	//tcpp->Dest_port = hibyte + lowbyte;
-	//tcpp->Dest_port = tcpp->Dest_port >> 8 + tcpp->Dest_port << 8;
-	return tcpp;
-}
-
-int main1()
-{
-	
-	SOCKET      s;         // Cлущающий сокет.
-	IN_ADDR		sa1;        //
-	
-
-	s = Create_Socket(2);
-
-	if (s != SOCKET_ERROR) {
-		// Бесконечный цикл приёма IP-пакетов.
-		while (1) {
-			IPPacket* ipp = Get_IP_packet(s);
-			if (ipp != 0) {
-				TCPPacket* tcpp = Get_TCP_packet(ipp);
-				//cout << "Version " << int(ipp->version) << endl;
-				//cout << "IHL " << int(ipp->IHL) << endl;
-				//cout << "DSCP " << int(ipp->DSCP) << endl;
-				//cout << "ECN " << int(ipp->ECN) << endl;
-				//cout << "Total_Length " << ipp->Total_Length << endl;
-				//cout << "Data_Length " << ipp->Data_Length << endl;
-				//cout << "Id " << int(ipp->Id) << endl;
-				//cout << "Flags " << int(ipp->Flags) << endl;
-				//cout << "Fragment_offset " << int(ipp->Fragment_offset) << endl;
-				//cout << "TTL " << int(ipp->TTL) << endl;
-				sa1.s_addr = ipp->Src_IP;
-				if (strcmp(inet_ntoa(sa1), "192.168.2.34") == 0) {
-					cout << "Protocol " << int(ipp->Protocol) << " ";
-					
-					cout << "Src_IP " << inet_ntoa(sa1) << " ";
-
-					cout << tcpp->Src_port << " ";
-
-					sa1.s_addr = ipp->Dest_IP;
-					cout << "Dest_IP " << inet_ntoa(sa1) << " ";
-
-					cout << tcpp->Dest_port << " ";
-					cout << endl;
-				}
-				//cout << "Hchecksum " << int(ipp->Hchecksum) << endl;
-				
-			}
+int main() {
+	SOCKET s;
+	unsigned char* Buffer;
+	s = CreateSocket(2);
+	while (true) {
+		Buffer = Get_Buffer(s);
+		if (Buffer[0]) {
+			Packet* pack = Get_IPv4_header(Buffer);
+			//if (strcmp(pack->src_IP, "192.168.2.34") == 0)
+				print_Packet(pack);
 		}
+			
 	}
-	Stop_Socket(s);
+	
+	DelSocket(s);
 	return 0;
-}
 }
