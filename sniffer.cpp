@@ -330,3 +330,71 @@ int main(int argc, char* argv[])
 	WaitForKey();
 	return 0;
 }
+
+
+
+
+while (1)
+{
+	int count = 1000000;
+	//count = recv(s, (char*)&Buffer, sizeof(Buffer), 0);;
+	// обработка IP-пакета
+
+
+	if (count >= sizeof(IPHeader))
+	{
+		IPHeader* hdr = Get_IP_packet(s);
+		//memcpy(hdr, Buffer, MAX_PACKET_SIZE);
+		/*for (int i = 0; i < sizeof(Buffer); i++) {
+			int j = int(Buffer[i]);
+			if (j < 0)
+				j = 256 + j;
+			std::string r;
+			while (j != 0) { r = (j % 2 == 0 ? "0" : "1") + r; j /= 2; }
+			cout << r;
+		}*/
+		cout << int(hdr->iph_protocol);
+		cout << endl;
+		continue;
+		//Начинаем разбор пакета...
+		printf("Packet: ");
+		// Преобразуем в понятный вид адрес отправителя.
+		printf("From ");
+		sa1.s_addr = hdr->iph_src;
+		printf(inet_ntoa(sa1));
+
+		// Преобразуем в понятный вид адрес получателя.
+		printf(" To ");
+		sa1.s_addr = hdr->iph_dest;
+		printf(inet_ntoa(sa1));
+
+		// Вычисляем протокол. Полный список этих констант
+		// содержится в файле winsock2.h
+		printf(" Prot: ");
+
+		if (hdr->iph_protocol == IPPROTO_TCP) printf("TCP "); else
+			if (hdr->iph_protocol == IPPROTO_UDP) printf("UDP "); else {
+				printf("UNKNOWN ");
+				cout << int(hdr->iph_protocol) << " ";
+			}
+
+
+
+		// Вычисляем размер. Так как в сети принят прямой порядок
+		// байтов, а не обратный, то прийдётся поменять байты местами.
+		printf("Size: ");
+		lowbyte = hdr->iph_length >> 8;
+		hibyte = hdr->iph_length << 8;
+		hibyte = hibyte + lowbyte;
+		printf("%s", _itoa(hibyte, ds, 10));
+
+		// Вычисляем время жизни пакета.
+		printf("%s", _itoa(hibyte, ds, 10));
+		printf(" TTL:%s", _itoa(hdr->iph_ttl, ds, 10));
+
+		cout << " " << hdr->iph_offset << " " << hdr->iph_id;
+		cout << " " << hdr->params;
+
+		cout << endl;
+	}
+}
