@@ -10,6 +10,9 @@
 
 using namespace std;
 
+
+// Headers
+
 struct IPv4Header {
 	unsigned char IHL : 4;				// Internet Header Length (4 bits)
 	unsigned char version : 4;			// IP protocol (4 bits)
@@ -54,21 +57,162 @@ struct TCPHeader {
 	//unsigned short* Options;			// Options
 };
 
-struct UDPHeader{
+struct UDPHeader {
 	unsigned short src_port;			// Source port (16 bits)
 	unsigned short dest_port;			// Destination port (16 bits)
 	unsigned short length;				// Udp packet length (16 bits)
 	unsigned short checksum;			// Udp checksum (optional) (16 bits)
 };
 
+//
+
+
+void PrintInterfaceList() {
+
+	SOCKET_ADDRESS_LIST* slist = NULL;
+	SOCKET s;
+	char buf[2048];
+	DWORD dwBytesRet;
+	int ret, i;
+
+	s = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+
+	if (s == SOCKET_ERROR) {
+		printf("socket() failed with error code %d\n", WSAGetLastError());
+		return;
+	}
+
+	ret = WSAIoctl(s, SIO_ADDRESS_LIST_QUERY, NULL, 0, buf, 2048, &dwBytesRet, NULL, NULL);
+	if (ret == SOCKET_ERROR) {
+		printf("WSAIoctl(SIO_ADDRESS_LIST_QUERY) failed with error code %d\n", WSAGetLastError());
+		return;
+	}
+
+	slist = (SOCKET_ADDRESS_LIST*)buf;
+
+	for (i = 0; i < slist->iAddressCount; i++) {
+		printf("          %d [%s]\n", i, inet_ntoa(((SOCKADDR_IN*)slist->Address[i].lpSockaddr)->sin_addr));
+	}
+
+	if (closesocket(s) != 0)
+		printf("closesocket() failed with error code %d\n", WSAGetLastError());
+
+	return;
+
+}
+
+int GetInterface(SOCKET s, SOCKADDR_IN* ifx, int num)
+
+{
+	SOCKET_ADDRESS_LIST* slist = NULL;
+	char                 buf[2048];
+	DWORD                dwBytesRet;
+	int                  ret;
+
+	ret = WSAIoctl(s, SIO_ADDRESS_LIST_QUERY, NULL, 0, buf, 2048, &dwBytesRet, NULL, NULL);
+	if (ret == SOCKET_ERROR) {
+		printf("WSAIoctl(SIO_ADDRESS_LIST_QUERY) failed with error code %d\n", WSAGetLastError());
+		return -1;
+	}
+
+	slist = (SOCKET_ADDRESS_LIST*)buf;
+	if (num >= slist->iAddressCount)
+		return -1;
+	ifx->sin_addr.s_addr = ((SOCKADDR_IN*)slist->Address[num].lpSockaddr)->sin_addr.s_addr;
+	return 0;
+}
+
+SOCKET CreateSocket() {
+	WSADATA     wsadata;		// init WinSock.
+	SOCKET      s;				// listening socket.
+	int host_interface;			// Host interface ID
+	SOCKADDR_IN if0;			// Host IP address (Host interface).
+	unsigned long	flag = 1;	// Flag PROMISC ON/OFF.
+
+	if (WSAStartup(MAKEWORD(2, 2), &wsadata) != 0)
+		printf("WSAStartup() failed with error % d\n", WSAGetLastError());
+
+
+	if ((s = WSASocket(AF_INET, SOCK_RAW, IPPROTO_IP, NULL, 0, WSA_FLAG_OVERLAPPED)) == INVALID_SOCKET) {
+		printf("WSASocket() for raw socket failed with error code %d\n", WSAGetLastError());
+		printf("RUN THIS PROGRAM WITH ADMINISTRATIVE PRIVILEGES!!!\n");
+	}
+	printf("Interface list:\n");
+	PrintInterfaceList();
+
+	printf("Enter host interface ID: ");
+	cin >> host_interface;
+
+	if (GetInterface(s, &if0, host_interface) != 0)
+		printf("Unable to obtain an interface!\n");
+
+	printf("Binding to if: %s\n", inet_ntoa(if0.sin_addr));
+
+
+	if0.sin_family = AF_INET;
+	if0.sin_port = htons(0);
+
+	if ((bind(s, (SOCKADDR*)&if0, sizeof(if0))) == SOCKET_ERROR)
+		printf("bind() failed with error code %d\n", WSAGetLastError());
+
+	// Turn ON promiscuous mode.
+	if (ioctlsocket(s, SIO_RCVALL, &flag) == SOCKET_ERROR)
+		printf("WSAIotcl(%ul) failed with error code %d\n", SIO_RCVALL, WSAGetLastError());
+
+	if (s != SOCKET_ERROR)
+		printf("Socket has created successfuly\n");
+	else
+		s = NULL;
+
+	return s;
+}
+
+void DelSocket(SOCKET s) {
+	if (closesocket(s) != 0)
+		printf("closesocket() failed with error code %d\n", WSAGetLastError());
+
+	if (WSACleanup() != 0)
+		printf("WSACleanup() failed with error code %d\n", WSAGetLastError());
+}
+
+unsigned char* Get_Buffer(SOCKET s) {
+	unsigned char Buffer[MAX_PACKET_SIZE]; // Buffer for income data (64 Kb)
+	int count = recv(s, (char*)&Buffer, sizeof(Buffer), 0);
+	if (count < sizeof(IPv4Header))
+		Buffer[0] = NULL;
+
+	return Buffer;
+}
+
+// Process headers
+
+TCPHeader* Get_TCP_header(unsigned char* Buffer) {
+	IPv4Header* iphdr = (IPv4Header*)Buffer;
+	TCPHeader* tcphdr = (TCPHeader*)(Buffer + iphdr->IHL * 4);
+	return tcphdr;
+}
+
+UDPHeader* Get_UDP_header(unsigned char* Buffer) {
+	IPv4Header* iphdr = (IPv4Header*)Buffer;
+	UDPHeader* udphdr = (UDPHeader*)(Buffer + iphdr->IHL * 4);
+	return udphdr;
+}
+
+IPv4Header* Get_IPv4_header(unsigned char* Buffer) {
+	IPv4Header* iphdr = (IPv4Header*)Buffer;
+	return iphdr;
+}
+
+//
+
 struct Packet {
-	char* src_IP;
-	int src_port;
-	char* dest_IP;
-	int dest_port;
-	string protocol;
-	int total_length;
-	int TTL;
+	unsigned int src_IP;
+	unsigned short src_port;
+	unsigned int dest_IP;
+	unsigned short dest_port;
+	unsigned char protocol;
+	unsigned short total_length;
+	unsigned char TTL;
 };
 
 char* getStrIP(unsigned int ip) {
@@ -79,141 +223,74 @@ char* getStrIP(unsigned int ip) {
 }
 
 void print_Packet(Packet* pack) {
-	if (!pack->src_IP) {
-		cout << "Proto: " << pack->protocol << endl;
-		return;
-	}
-	cout << "Src_IP: " << pack->src_IP << " ";
-	cout << ": " << pack->src_port << " ";
-	cout << "Dest_IP: " << pack->dest_IP << " ";
-	cout << ": " << pack->dest_port << " ";
-	cout << "Proto: " << pack->protocol << " ";
-	cout << "Total length: " << pack->total_length << " ";
-	cout << "TTL: " << pack->TTL << endl;
+	cout << "Packet: " << getStrIP(pack->src_IP);
+	if(pack->src_port)
+		cout << ": " << htons(pack->src_port);
+	cout << " -> " << getStrIP(pack->dest_IP);
+	if (pack->dest_port)
+		cout << ": " << htons(pack->dest_port);
+	cout << ", protocol(" << int(pack->protocol);
+	cout << "), length(" << pack->total_length;
+	cout << "), TTL(" << int(pack->TTL) << ");\n";
 }
 
-SOCKET CreateSocket(int host_interface) {
-	WSADATA     wsadata;	// init WinSock.
-	SOCKET      s;			// listening socket.
-	char        h_name[128];	// Host name (Computer name).
-	HOSTENT* h_info;				// Host information.
-	SOCKADDR_IN sa;			// Host IP address.
-	unsigned long	flag = 1;	// Flag PROMISC ON/OFF.
-
-	if (WSAStartup(MAKEWORD(2, 2), &wsadata) != 0) {
-		printf("WSAStartup failed with error % d\n", WSAGetLastError());
-	}
-	
-	if ((gethostname(h_name, 1024)) == SOCKET_ERROR)
-		printf("unable to gethostname\n");
-
-	if ((h_info = gethostbyname(h_name)) == NULL)
-		printf("unable to gethostbyname\n");
-	
-	if ((s = socket(AF_INET, SOCK_RAW, IPPROTO_IP)) == INVALID_SOCKET)
-		printf("unable to open raw socket\nRUN THIS PROGRAM WITH ADMINISTRATIVE PRIVILEGES!!!\n");
-	
-	sa.sin_family = AF_INET;
-	//sa.sin_addr.S_un.S_addr = INADDR_ANY;
-	memcpy(&sa.sin_addr.S_un.S_addr, h_info->h_addr_list[host_interface], h_info->h_length); // Choose your interface
-
-	if ((bind(s, (SOCKADDR*)&sa, sizeof(SOCKADDR))) == SOCKET_ERROR)
-		printf("unable to bind() socket\n");
-
-	// Turn ON promiscuous mode.
-	ioctlsocket(s, SIO_RCVALL, &flag);	
-	printf("Socket has created successfuly\n");
-	return s;
-}
-
-void DelSocket(SOCKET s) {
-	closesocket(s);
-	WSACleanup();
-}
-
-unsigned char* Get_Buffer(SOCKET s) {
-	unsigned char Buffer[MAX_PACKET_SIZE]; // Buffer for income data (64 Kb)
-	int count = recv(s, (char*)&Buffer, sizeof(Buffer), 0);
-	if (count <= 0)
-		Buffer[0] = NULL;
-		
-	return Buffer;
-
-}
-
-Packet* Get_TCP_header(unsigned char* Buffer) {
-	IPv4Header* iphdr = (IPv4Header*)(Buffer);
-	TCPHeader* tcphdr = (TCPHeader*)(Buffer + iphdr->IHL * 4);
-
+Packet* getPacket(unsigned char* Buffer) {
 	Packet* pack = new Packet;
-	pack->src_IP = getStrIP(iphdr->src_IP);
-	pack->src_port = (tcphdr->src_port);
-	pack->dest_IP = getStrIP(iphdr->dest_IP);
-	pack->dest_port = ntohs(tcphdr->dest_port);
-	pack->protocol = "TCP";
-	pack->total_length = int(iphdr->total_length);
-	pack->TTL = int(iphdr->TTL);
-	return pack;
-}
 
-Packet* Get_UDP_header(unsigned char* Buffer) {
-	IPv4Header* iphdr = (IPv4Header*)(Buffer);
-	UDPHeader* udphdr = (UDPHeader*)(Buffer + iphdr->IHL * 4);
+	IPv4Header* iphdr = Get_IPv4_header(Buffer);
+	TCPHeader* tcphdr;
+	UDPHeader* udphdr;
 
-	Packet* pack = new Packet;
-	pack->src_IP = getStrIP(iphdr->src_IP);
-	pack->src_port = ntohs(udphdr->src_port);
-	pack->dest_IP = getStrIP(iphdr->dest_IP);
-	pack->dest_port = ntohs(udphdr->dest_port);
-	pack->protocol = "UDP";
-	pack->total_length = int(iphdr->total_length);
-	pack->TTL = int(iphdr->TTL);
-	return pack;
-}
-
-Packet* Get_IPv4_header(unsigned char* Buffer) {
-	IPv4Header* iphdr = (IPv4Header*)(Buffer);
-	/*Packet* pack = new Packet;
-	pack->src_IP = getstrIP(iphdr->src_IP);
-	pack->dest_IP = getstrIP(iphdr->dest_IP);
-	pack->protocol = int(iphdr->protocol);
-	pack->total_length = int(iphdr->total_length);
-	pack->TTL = int(iphdr->TTL);
-	print_Packet(pack);*/
-	Packet* pack;
+	pack->src_IP = iphdr->src_IP;
+	pack->dest_IP = iphdr->dest_IP;
+	pack->protocol = iphdr->protocol;
+	pack->total_length = (iphdr->total_length << 8) + (iphdr->total_length >> 8);
+	pack->TTL = iphdr->TTL;
 
 	switch (iphdr->protocol)
 	{
-	case 6: //TCP Protocol
-		pack = Get_TCP_header(Buffer);
+	case IPPROTO_TCP: //TCP protocol (6)
+		tcphdr = Get_TCP_header(Buffer);
+		pack->src_port = tcphdr->src_port;
+		pack->dest_port = tcphdr->dest_port;
 		break;
 
-	case 17: //UDP Protocol
-		pack = Get_UDP_header(Buffer);
+	case IPPROTO_UDP: //UDP protocol (17)
+		udphdr = Get_UDP_header(Buffer);
+		pack->src_port = udphdr->src_port;
+		pack->dest_port = udphdr->dest_port;
 		break;
+
 	default:
-		pack = new Packet();
-		pack->protocol = iphdr->protocol;
-		pack->src_IP = NULL;
+		pack->src_port = NULL;
+		pack->dest_port = NULL;
 		break;
 	}
+
 	return pack;
+}
+
+
+bool show_packet(Packet* pack) {
+	return true;
 }
 
 int main() {
 	SOCKET s;
 	unsigned char* Buffer;
-	s = CreateSocket(2);
-	while (true) {
-		Buffer = Get_Buffer(s);
-		if (Buffer[0]) {
-			Packet* pack = Get_IPv4_header(Buffer);
-			//if (strcmp(pack->src_IP, "192.168.2.34") == 0)
-				print_Packet(pack);
+
+	s = CreateSocket();
+	if (s)
+		while (true) {
+			Buffer = Get_Buffer(s);
+			if (Buffer[0]) {
+				Packet* pack = getPacket(Buffer);
+				if (show_packet(pack))
+					print_Packet(pack);
+			}
+
 		}
-			
-	}
-	
+
 	DelSocket(s);
 	return 0;
 }
