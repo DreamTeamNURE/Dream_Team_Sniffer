@@ -1,5 +1,7 @@
 #pragma comment(lib, "ws2_32.lib")
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
+
 
 #include <iostream>
 #include <winsock2.h>
@@ -64,7 +66,7 @@ struct UDPHeader {
 	unsigned short checksum;			// Udp checksum (optional) (16 bits)
 };
 
-//
+// Socket
 
 
 void PrintInterfaceList() {
@@ -91,7 +93,7 @@ void PrintInterfaceList() {
 	slist = (SOCKET_ADDRESS_LIST*)buf;
 
 	for (i = 0; i < slist->iAddressCount; i++) {
-		printf("          %d [%s]\n", i, inet_ntoa(((SOCKADDR_IN*)slist->Address[i].lpSockaddr)->sin_addr));
+		printf("          %d) %s\n", i + 1, inet_ntoa(((SOCKADDR_IN*)slist->Address[i].lpSockaddr)->sin_addr));
 	}
 
 	if (closesocket(s) != 0)
@@ -140,10 +142,10 @@ SOCKET CreateSocket() {
 	printf("Interface list:\n");
 	PrintInterfaceList();
 
-	printf("Enter host interface ID: ");
+	printf("Enter host interface index: ");
 	cin >> host_interface;
 
-	if (GetInterface(s, &if0, host_interface) != 0)
+	if (GetInterface(s, &if0, host_interface - 1) != 0)
 		printf("Unable to obtain an interface!\n");
 
 	printf("Binding to if: %s\n", inet_ntoa(if0.sin_addr));
@@ -210,7 +212,8 @@ struct Packet {
 	unsigned short src_port;
 	unsigned int dest_IP;
 	unsigned short dest_port;
-	unsigned char protocol;
+	unsigned char protocol_int;
+	char protocol_str[6];
 	unsigned short total_length;
 	unsigned char TTL;
 };
@@ -222,16 +225,19 @@ char* getStrIP(unsigned int ip) {
 
 }
 
-void print_Packet(Packet* pack) {
+void printPacket(Packet* pack) {
 	cout << "Packet: " << getStrIP(pack->src_IP);
 	if(pack->src_port)
 		cout << ": " << htons(pack->src_port);
-	cout << " -> " << getStrIP(pack->dest_IP);
+	cout << "\t->\t" << getStrIP(pack->dest_IP);
 	if (pack->dest_port)
 		cout << ": " << htons(pack->dest_port);
-	cout << ", protocol(" << int(pack->protocol);
-	cout << "), length(" << pack->total_length;
-	cout << "), TTL(" << int(pack->TTL) << ");\n";
+	if (strcmp(pack->protocol_str, "Other") !=0)
+		cout << ",\t" << pack->protocol_str;
+	else
+		cout << ",\tprotocol(" << int(pack->protocol_int) << ")";
+	cout << ",\tlength(" << pack->total_length;
+	cout << "),\tTTL(" << int(pack->TTL) << ");\n";
 }
 
 Packet* getPacket(unsigned char* Buffer) {
@@ -243,7 +249,7 @@ Packet* getPacket(unsigned char* Buffer) {
 
 	pack->src_IP = iphdr->src_IP;
 	pack->dest_IP = iphdr->dest_IP;
-	pack->protocol = iphdr->protocol;
+	pack->protocol_int = iphdr->protocol;
 	pack->total_length = (iphdr->total_length << 8) + (iphdr->total_length >> 8);
 	pack->TTL = iphdr->TTL;
 
@@ -251,17 +257,20 @@ Packet* getPacket(unsigned char* Buffer) {
 	{
 	case IPPROTO_TCP: //TCP protocol (6)
 		tcphdr = Get_TCP_header(Buffer);
+		strcpy(pack->protocol_str, "TCP");
 		pack->src_port = tcphdr->src_port;
 		pack->dest_port = tcphdr->dest_port;
 		break;
 
 	case IPPROTO_UDP: //UDP protocol (17)
 		udphdr = Get_UDP_header(Buffer);
+		strcpy(pack->protocol_str, "UDP");
 		pack->src_port = udphdr->src_port;
 		pack->dest_port = udphdr->dest_port;
 		break;
 
 	default:
+		strcpy(pack->protocol_str, "Other");
 		pack->src_port = NULL;
 		pack->dest_port = NULL;
 		break;
@@ -270,23 +279,42 @@ Packet* getPacket(unsigned char* Buffer) {
 	return pack;
 }
 
+char Src_IP[16], Dest_IP[16], Proto[5];
+
 
 bool show_packet(Packet* pack) {
+	if (strcmp(Src_IP, getStrIP(pack->src_IP)) != 0 && strcmp(Src_IP, "-") != 0)
+		return false;
+	if (strcmp(Dest_IP, getStrIP(pack->dest_IP)) != 0 && strcmp(Dest_IP, "-") != 0)
+		return false;
+	if (strcmp(Proto, pack->protocol_str) != 0 && strcmp(Proto, "-") != 0)
+		return false;
 	return true;
 }
+
+//Packet* get
 
 int main() {
 	SOCKET s;
 	unsigned char* Buffer;
-
+	
 	s = CreateSocket();
+
+	cout << "Enter filter:\n";
+	cout << "Enter Source IP or - : ";
+	cin >> Src_IP;
+	cout << "Enter Destination IP or - : ";
+	cin >> Dest_IP;
+	cout << "Enter Protocol (TCP/UDP/Other) or - : ";
+	cin >> Proto;
+
 	if (s)
 		while (true) {
 			Buffer = Get_Buffer(s);
 			if (Buffer[0]) {
 				Packet* pack = getPacket(Buffer);
 				if (show_packet(pack))
-					print_Packet(pack);
+					printPacket(pack);
 			}
 
 		}
